@@ -1,0 +1,14 @@
+[project]
+name = "AI翻译配音"
+version = "0.1.0"
+description = "翻译英文语音的视频为中文配音, whisper提取字幕, deepseek翻译字幕, index-tts2进行中文配音, ffmpeg进行音视频合成"
+authors = [{ name = "kky" }]
+readme = "README.md"
+
+dependencies = [
+    "stable_ts>=2.19.1",
+    "openai>=2.44.0",
+    "srt>=3.5.3",
+    "pyyaml>=6.0.3",
+    "faster-whisper>=1.2.1",
+]
