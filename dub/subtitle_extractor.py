@@ -64,7 +64,7 @@ class Extractor:
  
 
 if __name__ == "__main__":
-    video_path = r"E:\CourseVideo\.NET内存专家\NET内存专家.7._类和结构体的数组列表.39355417046.mp4" 
+    video_path = r"E:\CourseVideo\.NET内存专家\NET内存专家.3._作业.39355354830.mp4" 
      
     if torch.cuda.is_available():
         device = torch.device("cuda")

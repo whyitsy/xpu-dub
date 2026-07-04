@@ -97,6 +97,14 @@ class IndexTTS2:
             self.gpt.eval().half()
         else:
             self.gpt.eval()
+        print(">> Optimizing GPT for inference...")
+        self.gpt = ipex.optimize(
+            self.gpt,
+            dtype=torch.float16,
+            optimizer=None,
+            inplace=True,
+            level="O1"
+        )
         print(">> GPT weights restored from:", self.gpt_path)
 
         if use_deepspeed:
@@ -173,6 +181,14 @@ class IndexTTS2:
         self.bigvgan = self.bigvgan.to(self.device)
         self.bigvgan.remove_weight_norm()
         self.bigvgan.eval()
+        print(">> Optimizing BigVGAN for inference...")
+        self.bigvgan = ipex.optimize(
+            self.bigvgan,
+            dtype=torch.float16,   # 使用半精度
+            optimizer=None,        # 推理模式
+            inplace=True,
+            level="O1"             # 图优化级别
+        )
         print(">> bigvgan weights restored from:", bigvgan_dir)
 
         self.bpe_path = os.path.join(self.model_dir, self.cfg.dataset["bpe_model"])

@@ -442,14 +442,14 @@ class Translator:
 
 if __name__ == "__main__":
     # ─── 完整流水线：ori.srt → ori_full.srt → trans_full.srt → trans_final.srt ───
-    # input_path = r"E:\CourseVideo\.NET内存专家"
-    # term_file_path = r"E:\CourseVideo\.NET内存专家\terminology.csv"
-    # translator = Translator(input_path=input_path, term_file_path=term_file_path)
-    # translator.run()
+    input_path = r"E:\CourseVideo\.NET内存专家\NET内存专家.3._作业.39355354830_ori.srt"
+    term_file_path = r"E:\CourseVideo\.NET内存专家\terminology_translate.csv"
+    translator = Translator(input_path=input_path, term_file_path=term_file_path)
+    translator.run()
 
     # ─── 独立拆分：trans_full.srt → trans_final.srt（无需 API，不需术语表）───
     # 支持单文件或目录，可选 max_chars 参数（默认 25）
-    Translator.resplit(
-        r"E:\CourseVideo\.NET内存专家\NET内存专家.7._类和结构体的数组列表.39355417046_trans_full.srt",
-        max_chars=35,  # 可调整每行字符数
-    )
+    # Translator.resplit(
+    #     r"E:\CourseVideo\.NET内存专家\NET内存专家.7._类和结构体的数组列表.39355417046_trans_full.srt",
+    #     max_chars=35,  # 可调整每行字符数
+    # )
