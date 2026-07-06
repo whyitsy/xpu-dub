@@ -1,5 +1,5 @@
 api:
   deepseek:
-    api_key: "sk-fc43d26a3dcd4abaa5b37fe36c6726d5"
+    api_key: "xxx"
     base_url: "https://api.deepseek.com/"
     model_type: "deepseek-v4-flash"

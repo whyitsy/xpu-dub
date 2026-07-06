@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import timedelta
 from openai import OpenAI
 
-with open("config.yaml", "r", encoding="utf-8") as f:
+with open("config_dev.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
 
