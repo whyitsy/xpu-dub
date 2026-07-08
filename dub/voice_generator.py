@@ -59,6 +59,15 @@ class VoiceGenerator:
             n = self.load_glossary_csv(glossary_csv)
             print(f"术语词汇表已加载: {n} 条 (来自 {glossary_csv})")
 
+    # ────────── GPU 缓存清理 ──────────
+
+    def _free_gpu_cache(self):
+        """释放 GPU / XPU 显存缓存，防止逐句合成时显存累积。"""
+        if hasattr(torch, 'xpu') and torch.xpu.is_available():
+            torch.xpu.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     # ────────── 单句合成 ──────────
 
     def _synthesize_one(self, text: str, prompt_wav: str) -> torch.Tensor:
@@ -66,7 +75,7 @@ class VoiceGenerator:
         合成单句，返回 (1, samples) float32 tensor（CPU）。
 
         v2.0 内部会按 max_text_tokens_per_segment 自动分段，
-        最终返回拼接后的完整音频。
+        最终返回拼接后的完整音频。合成后立即释放 GPU 显存。
         """
         result = self.tts.infer(
             spk_audio_prompt=str(prompt_wav),
@@ -74,7 +83,7 @@ class VoiceGenerator:
             output_path=None,       # 返回内存数据，不写文件
             verbose=False,
             num_beams=1,
-            max_text_tokens_per_segment=60,
+            max_text_tokens_per_segment=70,
         )
         if result is None:
             raise RuntimeError(f"合成失败，文本: {text[:50]}...")
@@ -83,6 +92,10 @@ class VoiceGenerator:
         # v2.0 infer() 返回的 wav_np 经过 .numpy().T 转置，shape 为 (samples, 1)
         # 需要 squeeze 掉最后一维得到 (samples,)，再加 batch 维 → (1, samples)
         wav_tensor = torch.from_numpy(wav_np).float().squeeze(-1).unsqueeze(0)  # (1, samples)
+
+        # 显式移动到 CPU 并释放 GPU 显存，防止逐句合成时显存累积
+        wav_tensor = wav_tensor.cpu()
+        self._free_gpu_cache()
 
         # 调试：检查合成音频是否真的有内容
         max_val = wav_tensor.abs().max().item()
@@ -207,9 +220,9 @@ class VoiceGenerator:
             start_sec = start.total_seconds()
             end_sec = end.total_seconds()
 
-            if verbose:
-                print(f"  [{idx+1}/{len(entries)}] {start_sec:.1f}s-{end_sec:.1f}s "
-                      f"\"{text[:50]}{'...' if len(text) > 50 else ''}\"")
+            # 始终打印进度（不使用 tqdm，避免吞掉内置打印信息）
+            text_preview = text[:40] + "..." if len(text) > 40 else text
+            print(f"  [{idx+1}/{len(entries)}] {text_preview}", flush=True)
 
             t0 = time.perf_counter()
             wav = self._synthesize_one(text, prompt_audio)
@@ -221,7 +234,8 @@ class VoiceGenerator:
 
             if verbose:
                 srt_dur = end_sec - start_sec
-                print(f"      耗时 {elapsed:.1f}s, 音频 {synth_dur:.1f}s, "
+                print(f"      {start_sec:.1f}s-{end_sec:.1f}s | "
+                      f"耗时 {elapsed:.1f}s | 音频 {synth_dur:.1f}s | "
                       f"字幕窗 {srt_dur:.1f}s"
                       f"{' [补静音]' if synth_dur < srt_dur else ''}")
 
@@ -312,14 +326,14 @@ class VoiceGenerator:
         self,
         input_path: str,
         prompt_audio: str,
-        skip_existing: bool = True,
+        force: bool = False,
     ):
         """
         一键处理：trans_full.srt → 语音合成 → 替换视频音轨。
 
         :param input_path:   单个 trans_full.srt 或目录
         :param prompt_audio: 音色参考音频（支持 wav/mp3/m4a，v2.0 用 librosa 加载）
-        :param skip_existing: 跳过已存在的输出
+        :param force:        是否强制覆盖已存在的输出文件
         """
         input_path = Path(input_path)
         tasks = self._collect_tasks(input_path)
@@ -343,13 +357,24 @@ class VoiceGenerator:
                 f"{stem}_dubbed{video_path.suffix}"
             )
 
-            if skip_existing and dubbed_video.exists():
-                print(f"  配音视频已存在，跳过 -> {dubbed_video.name}")
-                continue
+            if dubbed_video.exists():
+                if not force:
+                    print(f"  配音视频已存在，跳过 -> {dubbed_video.name}")
+                    continue
+                else:
+                    print(f"  配音视频已存在，强制覆盖 -> {dubbed_video.name}")
 
             try:
-                if wav_path.exists() and skip_existing:
-                    print(f"  音频已存在，跳过合成 -> {wav_path.name}")
+                if wav_path.exists():
+                    if not force:
+                        print(f"  音频已存在，跳过合成 -> {wav_path.name}")
+                    else:
+                        print(f"  音频已存在，强制重新合成 -> {wav_path.name}")
+                        self.generate_speech(
+                            srt_path=str(srt_path),
+                            prompt_audio=str(prompt_audio),
+                            output_wav=str(wav_path),
+                        )
                 else:
                     self.generate_speech(
                         srt_path=str(srt_path),
@@ -377,14 +402,17 @@ class VoiceGenerator:
         if input_path.is_file():
             srt_files = [input_path]
         elif input_path.is_dir():
-            srt_files = sorted(input_path.glob("*_trans_full.srt"))
+            srt_files = sorted(input_path.glob("**/*_trans_full.srt"))
         else:
             raise FileNotFoundError(f"路径不存在: {input_path}")
 
         tasks = []
         for srt_path in srt_files:
             stem = srt_path.stem.replace("_trans_full", "")
+            # 先在 srt 所在子文件夹找视频，再到父目录找
             video_path = srt_path.with_name(f"{stem}.mp4")
+            if not video_path.exists():
+                video_path = srt_path.parent.parent / f"{stem}.mp4"
 
             if not video_path.exists():
                 print(f"  警告: 未找到对应视频，跳过 -> {srt_path.name}")
@@ -397,8 +425,8 @@ class VoiceGenerator:
 
 # ======================================================================
 if __name__ == "__main__":
-    PROMPT_AUDIO = r"E:\CourseVideo\.NET内存专家\参考音频15s.wav"
-    INPUT_PATH = r"E:\CourseVideo\.NET内存专家\NET内存专家.3._作业.39355354830_trans_full.srt"
+    PROMPT_AUDIO = r"E:\CourseVideo\.NET内存专家\参考音频5s.wav"
+    INPUT_PATH = r"E:\CourseVideo\.NET内存专家"
     GLOSSARY_CSV = r"E:\CourseVideo\.NET内存专家\terminology_voice.csv"
 
     generator = VoiceGenerator(
@@ -409,5 +437,5 @@ if __name__ == "__main__":
     generator.process(
         input_path=INPUT_PATH,
         prompt_audio=PROMPT_AUDIO,
-        skip_existing=True,
+        force=False,
     )

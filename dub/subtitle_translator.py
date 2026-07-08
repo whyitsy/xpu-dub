@@ -17,9 +17,9 @@ class SentenceMerger:
     # 句末标点：遇到这些标点视为一个完整句子结束
     SENTENCE_END_PATTERN = re.compile(r'[.?!]\s*$')
     # 安全阀：单句最大合并时长（秒），防止无限合并
-    MAX_MERGE_DURATION = 15.0
+    MAX_MERGE_DURATION = 20.0
     # 安全阀：单句最大合并词数
-    MAX_MERGE_WORDS = 40
+    MAX_MERGE_WORDS = 50
 
     @classmethod
     def merge(cls, subtitle_list: list) -> list:
@@ -192,18 +192,20 @@ class Translator:
     ori.srt → (合并) → ori_full.srt → (翻译) → trans_full.srt → (拆分) → trans_final.srt
     """
 
-    def __init__(self, input_path: str, term_file_path=None):
+    def __init__(self, input_path: str, term_file_path=None, force=False):
         """
         :param input_path: 单个 SRT 文件路径，或包含 SRT 文件的目录路径
         :param term_file_path: 术语表 CSV 文件路径
+        :param force: 是否强制覆盖已存在的输出文件
         """
         self.input_path = Path(input_path)
         self.term_file_path = term_file_path
+        self.force = force
 
         if self.input_path.is_file():
             self.srt_files = [self.input_path]
         elif self.input_path.is_dir():
-            self.srt_files = sorted(self.input_path.glob("*_ori.srt"))
+            self.srt_files = sorted(self.input_path.glob("**/*_ori.srt"))
             if not self.srt_files:
                 print(f"警告：目录 {input_path} 中未找到 *_ori.srt 文件")
         else:
@@ -292,20 +294,21 @@ class Translator:
             self._process_single(srt_file)
 
     @staticmethod
-    def resplit(input_path: str, max_chars: int = 25):
+    def resplit(input_path: str, max_chars: int = 35, force: bool = False):
         """
         独立拆分功能：读取 trans_full.srt，重新拆分为 trans_final.srt。
         适用于翻译已完成、只需调整拆分参数（如每行字符数）的场景。
 
         :param input_path: 单个 trans_full.srt 文件路径，或包含 trans_full.srt 文件的目录路径
         :param max_chars:  单条字幕最大字符数，默认 25
+        :param force:      是否强制覆盖已存在的输出文件
         """
         input_path = Path(input_path)
 
         if input_path.is_file():
             full_files = [input_path]
         elif input_path.is_dir():
-            full_files = sorted(input_path.glob("*_trans_full.srt"))
+            full_files = sorted(input_path.glob("**/*_trans_full.srt"))
             if not full_files:
                 print(f"警告：目录 {input_path} 中未找到 *_trans_full.srt 文件")
                 return
@@ -317,6 +320,17 @@ class Translator:
         SubtitleSplitter.MAX_CHARS = max_chars
 
         for full_path in full_files:
+            final_path = full_path.with_name(
+                full_path.stem.replace("_trans_full", "_trans_final") + ".srt"
+            )
+
+            if final_path.exists():
+                if not force:
+                    print(f"拆分已存在，跳过 -> {final_path.name}")
+                    continue
+                else:
+                    print(f"拆分已存在，强制覆盖 -> {final_path.name}")
+
             print(f"正在拆分: {full_path.name}")
 
             with open(full_path, "r", encoding="utf-8") as f:
@@ -327,9 +341,6 @@ class Translator:
                 final_subtitles.extend(SubtitleSplitter.split(sub))
             final_subtitles = list(srt.sort_and_reindex(final_subtitles))
 
-            final_path = full_path.with_name(
-                full_path.stem.replace("_trans_full", "_trans_final") + ".srt"
-            )
             with open(final_path, "w", encoding="utf-8") as f:
                 f.write(srt.compose(final_subtitles))
 
@@ -346,6 +357,17 @@ class Translator:
         trans_full_path = ori_srt_path.with_name(
             ori_srt_path.stem.replace("_ori", "_trans_full") + ".srt"
         )
+        final_path = ori_srt_path.with_name(
+            ori_srt_path.stem.replace("_ori", "_trans_final") + ".srt"
+        )
+
+        # 检查最终输出是否已存在
+        if final_path.exists():
+            if not self.force:
+                print(f"{ori_srt_path.stem}-翻译已存在，跳过！")
+                return
+            else:
+                print(f"{ori_srt_path.stem}-翻译已存在，强制覆盖！")
 
         # 1. 读取原始字幕
         with open(ori_srt_path, "r", encoding="utf-8") as f:
@@ -442,7 +464,7 @@ class Translator:
 
 if __name__ == "__main__":
     # ─── 完整流水线：ori.srt → ori_full.srt → trans_full.srt → trans_final.srt ───
-    input_path = r"E:\CourseVideo\.NET内存专家\NET内存专家.3._作业.39355354830_ori.srt"
+    input_path = r"E:\CourseVideo\.NET内存专家"
     term_file_path = r"E:\CourseVideo\.NET内存专家\terminology_translate.csv"
     translator = Translator(input_path=input_path, term_file_path=term_file_path)
     translator.run()

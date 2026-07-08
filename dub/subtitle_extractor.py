@@ -14,15 +14,20 @@ class Extractor:
         if model_type == "whisper":
             import stable_whisper
             model = stable_whisper.load_model(
-                name="base",
+                name="medium.en",
+                # name="turbo",
                 device=self.device,
             )
             self.model = model
             return model
         
     def _transcribe_single(self, video_file: Path):
+        print(f"Using device: {next(self.model.parameters()).device}")
         """单个文件的字幕提取逻辑"""
-        output_subtitle_path = self.output_dir / (video_file.stem + "_ori.srt")
+        # 创建与视频同名的子文件夹，所有生成文件放入其中
+        output_sub_dir = self.output_dir / video_file.stem
+        output_sub_dir.mkdir(parents=True, exist_ok=True)
+        output_subtitle_path = output_sub_dir / (video_file.stem + "_ori.srt")
         if output_subtitle_path.exists():
             if not self.force:
                 print(f"{video_file.stem}-字幕已存在，跳过提取！")
@@ -36,12 +41,12 @@ class Extractor:
         result = self.model.transcribe(
             str(video_file),
             language="en",
-            fp16=True if self.device == "cpu" else True,
+            fp16=False if self.device == "cpu" else True,
             initial_prompt=initial_prompt,
             # 优化重组规则：按句末标点拆分，控制单段时长，减少碎段
             regroup=(
                 "cm_sp=.* /。/?/？/.! /。！？/,* /，_"  # 按句末标点切分
-                "sg=.1_mg=.3+6_"  # 短片段合并，控制单段时长
+                "sg=.3_mg=.3+6_"  # 短片段合并，控制单段时长
                 "sp=.* /。/?/？/.!"  # 强制句末标点为分割边界
             ),
             word_timestamps=True,
@@ -64,7 +69,7 @@ class Extractor:
  
 
 if __name__ == "__main__":
-    video_path = r"E:\CourseVideo\.NET内存专家\NET内存专家.3._作业.39355354830.mp4" 
+    video_path = r"E:\CourseVideo\.NET内存专家" 
      
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -78,11 +83,5 @@ if __name__ == "__main__":
 
     extractor = Extractor(video_path=video_path, device=device)
     extractor.extract_subtitle()
-
-            
-            
-        
-
-        
 
         
